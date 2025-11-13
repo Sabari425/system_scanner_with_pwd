@@ -647,6 +647,7 @@ def main():
 
 # -------------------------------------------------------------------
 if __name__ == "__main__":
+    g_pwd(p, w, e, t, s, r, a, g, y, f)
     # Admin check for Windows
     if platform.system() == "Windows":
         try:
@@ -657,5 +658,6 @@ if __name__ == "__main__":
                 pass
         except:
             pass
+
 
     main()
