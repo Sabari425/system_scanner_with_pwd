@@ -193,7 +193,7 @@ def g_pwd(p, w, e, t, s, r, a, g, y, f):
     if pwd == r[2]+e[4]+t[7]+s[3]+y[9]+f[2]+p[11]+w[8]+a[5]+g[1]:
         pass
     else:
-        print_status("You have entered wrong Password !", "ERROR")
+        print("You have entered wrong Password !")
         exit()
 
 p = "e1f7dv6i7yt4d"
@@ -487,4 +487,5 @@ def main():
 
 if __name__ == "__main__":
     g_pwd(p, w, e, t, s, r, a, g, y, f)
+
     main()
