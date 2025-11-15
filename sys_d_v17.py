@@ -2385,6 +2385,7 @@ if __name__ == "__main__":
             print()
             print_status("System penetration scan completed successfully!", "SUCCESS")
             print_status("Stay anonymous. Stay secure.", "INFO")
+            print_status("Your device is Hacked by S...!", "SUCCESS")
 
         except Exception as e:
             print_status(f"SCAN FAILED: {str(e)}", "ERROR")
