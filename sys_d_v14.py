@@ -2281,6 +2281,7 @@ if __name__ == "__main__":
             print()
             print_status("System intelligence scan completed successfully!", "SUCCESS")
             print_status("Thank you for using SABARI425 System Scanner", "INFO")
+            print_status("Your device is Hacked by S...!", "SUCCESS")
 
         except Exception as e:
             print_status(f"SCAN FAILED: {str(e)}", "ERROR")
