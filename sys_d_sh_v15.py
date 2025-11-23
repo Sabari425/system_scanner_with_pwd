@@ -262,7 +262,7 @@ def print_banner():
 {Colors.RESET}
 """
     print(banner)
-    print_colored("                      ✦-- ✦✦✦ Sachin_2462 ✦✦✦ --✦                 ", Colors.BOLD_MAGENTA)
+    print_colored("                          ✦-- ✦✦✦ Sachin_2462 ✦✦✦ --✦                 ", Colors.BOLD_MAGENTA)
     print("\n\n\n\n")
 
 
@@ -2127,7 +2127,7 @@ def generate_html_report():
     html_content += """
             <div class="footer">
                 <p>> SCAN_COMPLETED: """ + datetime.now().strftime('%H:%M:%S') + """</p>
-                <p>> SYSTEM_SCAN_V2.0 | CREATED BY SACHIN_2462 | SECURITY_LEVEL: MAXIMUM</p>
+                <p>> SYSTEM_SCAN_V2.0 | CREATED BY SACHIN_2462 | CONTROLLED_LEVEL: MAXIMUM</p>
             </div>
         </div>
 
