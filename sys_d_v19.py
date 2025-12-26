@@ -16,19 +16,6 @@ import math
 from collections import OrderedDict, defaultdict, Counter
 import statistics
 
-# Try to import Windows-specific modules
-try:
-    import winreg  # Windows registry access
-    WINREG_AVAILABLE = True
-except:
-    WINREG_AVAILABLE = False
-
-try:
-    import ctypes  # For Windows API calls
-    CTYPES_AVAILABLE = True
-except:
-    CTYPES_AVAILABLE = False
-
 # -------------------------------------------------------------------
 #  AUTO-INSTALL REQUIRED PYTHON PACKAGES
 # -------------------------------------------------------------------
@@ -55,8 +42,21 @@ for package in required_packages:
 import psutil
 from tabulate import tabulate
 
+# Try to import Windows-specific modules
+try:
+    import winreg
+    WINREG_AVAILABLE = True
+except:
+    WINREG_AVAILABLE = False
+
+try:
+    import ctypes
+    CTYPES_AVAILABLE = True
+except:
+    CTYPES_AVAILABLE = False
+
 # -------------------------------------------------------------------
-#  ENHANCED COLOR CLASS WITH GRADIENTS AND EFFECTS - FIXED VERSION
+#  ENHANCED COLOR CLASS WITH GRADIENTS AND EFFECTS
 # -------------------------------------------------------------------
 class Colors:
     # Basic ANSI colors
@@ -209,8 +209,1264 @@ def calculate_percentage(part, total):
     return (part / total) * 100
 
 # -------------------------------------------------------------------
-#  STATISTICAL ANALYSIS FUNCTIONS
+#  DATA COLLECTION FUNCTIONS - ALL DEFINED
 # -------------------------------------------------------------------
+def run_command_with_timeout(cmd, timeout=10):
+    """Run command with timeout"""
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, 
+                               text=True, encoding='utf-8', 
+                               errors='ignore', timeout=timeout)
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "[TIMEOUT]"
+    except Exception as e:
+        return f"[ERROR] {str(e)}"
+
+# -------------------------------------------------------------------
+#  SYSTEM INFORMATION FUNCTIONS
+# -------------------------------------------------------------------
+def get_comprehensive_system_info():
+    """Get extremely detailed system information"""
+    info = OrderedDict()
+    
+    # Basic system info
+    info["System"] = platform.system()
+    info["Node Name"] = platform.node()
+    info["Release"] = platform.release()
+    info["Version"] = platform.version()
+    info["Machine"] = platform.machine()
+    
+    # Try to get processor info
+    try:
+        info["Processor"] = platform.processor()
+    except:
+        info["Processor"] = "Unknown"
+    
+    try:
+        info["Architecture"] = platform.architecture()[0]
+    except:
+        info["Architecture"] = "Unknown"
+    
+    # Python info
+    info["Python Version"] = platform.python_version()
+    try:
+        info["Python Compiler"] = platform.python_compiler()
+        info["Python Build"] = platform.python_build()[1]
+    except:
+        info["Python Compiler"] = "Unknown"
+        info["Python Build"] = "Unknown"
+    
+    # Windows specific
+    if platform.system() == "Windows" and WINREG_AVAILABLE:
+        try:
+            # Get Windows edition
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            try:
+                info["Product Name"] = winreg.QueryValueEx(key, "ProductName")[0]
+            except:
+                info["Product Name"] = "Unknown"
+            
+            try:
+                info["Edition ID"] = winreg.QueryValueEx(key, "EditionID")[0]
+            except:
+                info["Edition ID"] = "Unknown"
+                
+            winreg.CloseKey(key)
+        except Exception as e:
+            info["Windows Registry Error"] = str(e)[:50]
+    
+    # Uptime
+    try:
+        boot_time = psutil.boot_time()
+        uptime = datetime.now() - datetime.fromtimestamp(boot_time)
+        info["Boot Time"] = datetime.fromtimestamp(boot_time).strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Format uptime nicely
+        days = uptime.days
+        hours, remainder = divmod(uptime.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        info["Uptime"] = f"{days}d {hours}h {minutes}m {seconds}s"
+    except:
+        info["Boot Time"] = "Unknown"
+        info["Uptime"] = "Unknown"
+    
+    return [[k, v] for k, v in info.items()]
+
+def get_extended_hardware_info():
+    """Get detailed hardware information"""
+    hardware = []
+    
+    # CPU Information
+    try:
+        cpu_freq = psutil.cpu_freq()
+        if cpu_freq:
+            cpu_info = {
+                "Category": "CPU",
+                "Detail": platform.processor() or "Unknown",
+                "Current Frequency": f"{cpu_freq.current:.2f} MHz",
+                "Max Frequency": f"{cpu_freq.max:.2f} MHz" if cpu_freq.max else "N/A",
+                "Cores": f"{psutil.cpu_count(logical=False)} physical, {psutil.cpu_count(logical=True)} logical"
+            }
+        else:
+            cpu_info = {
+                "Category": "CPU",
+                "Detail": platform.processor() or "Unknown",
+                "Current Frequency": "N/A",
+                "Max Frequency": "N/A",
+                "Cores": f"{psutil.cpu_count(logical=False)} physical, {psutil.cpu_count(logical=True)} logical"
+            }
+        hardware.append(cpu_info)
+    except Exception as e:
+        hardware.append({
+            "Category": "CPU",
+            "Detail": f"Error: {str(e)}",
+            "Current Frequency": "N/A",
+            "Max Frequency": "N/A",
+            "Cores": "N/A"
+        })
+    
+    # Memory Information
+    try:
+        memory = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        hardware.append({
+            "Category": "MEMORY",
+            "Detail": f"Total: {format_bytes(memory.total)}",
+            "Available": format_bytes(memory.available),
+            "Used": format_bytes(memory.used),
+            "Usage": f"{memory.percent}%",
+            "Swap Total": format_bytes(swap.total)
+        })
+    except Exception as e:
+        hardware.append({
+            "Category": "MEMORY",
+            "Detail": f"Error: {str(e)}",
+            "Available": "N/A",
+            "Used": "N/A",
+            "Usage": "N/A",
+            "Swap Total": "N/A"
+        })
+    
+    # Disk Information
+    try:
+        partitions = psutil.disk_partitions()
+        for partition in partitions:
+            try:
+                usage = psutil.disk_usage(partition.mountpoint)
+                hardware.append({
+                    "Category": "DISK",
+                    "Device": partition.device,
+                    "Mountpoint": partition.mountpoint,
+                    "Filesystem": partition.fstype,
+                    "Total": format_bytes(usage.total),
+                    "Used": format_bytes(usage.used),
+                    "Free": format_bytes(usage.free),
+                    "Usage": f"{usage.percent}%"
+                })
+            except:
+                continue
+    except:
+        pass
+    
+    # Battery Information
+    try:
+        battery = psutil.sensors_battery()
+        if battery:
+            time_left = "Unknown"
+            if battery.secsleft != psutil.POWER_TIME_UNLIMITED and battery.secsleft > 0:
+                hours = battery.secsleft // 3600
+                minutes = (battery.secsleft % 3600) // 60
+                time_left = f"{hours}h {minutes}m"
+            
+            hardware.append({
+                "Category": "BATTERY",
+                "Percentage": f"{battery.percent}%",
+                "Power Plugged": "Yes" if battery.power_plugged else "No",
+                "Time Left": time_left
+            })
+    except:
+        pass
+    
+    # Network Adapters
+    try:
+        addrs = psutil.net_if_addrs()
+        stats = psutil.net_if_stats()
+        for interface, addresses in addrs.items():
+            status = "DOWN"
+            speed = "N/A"
+            
+            if interface in stats:
+                status = "UP" if stats[interface].isup else "DOWN"
+                speed = f"{stats[interface].speed} Mbps" if stats[interface].speed > 0 else "N/A"
+            
+            mac_address = "N/A"
+            if addresses and len(addresses) > 0:
+                for addr in addresses:
+                    if addr.family == -1:  # MAC address
+                        mac_address = addr.address
+                        break
+            
+            hardware.append({
+                "Category": "NETWORK",
+                "Interface": interface,
+                "Status": status,
+                "Speed": speed,
+                "MAC": mac_address
+            })
+    except:
+        pass
+    
+    return hardware
+
+def get_detailed_process_info():
+    """Get extremely detailed process information"""
+    processes = []
+    
+    for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent',
+                                     'memory_info', 'create_time', 'status', 'cpu_times',
+                                     'num_threads', 'exe', 'cmdline', 'ppid']):
+        try:
+            pinfo = proc.info
+            
+            # Calculate additional metrics
+            create_time = datetime.fromtimestamp(pinfo['create_time'])
+            uptime = datetime.now() - create_time
+            
+            # Get parent process info
+            parent_name = "N/A"
+            if pinfo['ppid']:
+                try:
+                    parent = psutil.Process(pinfo['ppid'])
+                    parent_name = parent.name()
+                except:
+                    pass
+            
+            # Format memory
+            memory_mb = "N/A"
+            if pinfo.get('memory_info'):
+                memory_mb = f"{pinfo['memory_info'].rss / (1024*1024):.2f}"
+            
+            # Format executable path
+            exe_path = "N/A"
+            if pinfo.get('exe'):
+                if len(pinfo['exe']) > 50:
+                    exe_path = "..." + pinfo['exe'][-47:]
+                else:
+                    exe_path = pinfo['exe']
+            
+            # Format command line
+            cmd_line = ""
+            if pinfo.get('cmdline'):
+                cmd_line = ' '.join(pinfo['cmdline'][:2])
+                if len(cmd_line) > 30:
+                    cmd_line = cmd_line[:27] + "..."
+            
+            processes.append({
+                "PID": pinfo['pid'],
+                "Name": (pinfo['name'][:30] + "...") if len(pinfo['name']) > 30 else pinfo['name'],
+                "User": pinfo['username'] or "SYSTEM",
+                "CPU %": f"{pinfo['cpu_percent']:.2f}",
+                "Memory %": f"{pinfo['memory_percent']:.3f}",
+                "Memory (MB)": memory_mb,
+                "Threads": pinfo.get('num_threads', 'N/A'),
+                "Status": pinfo['status'],
+                "Parent": f"{parent_name} ({pinfo['ppid']})",
+                "Uptime": str(uptime).split('.')[0],
+                "Created": create_time.strftime('%H:%M:%S'),
+                "Executable": exe_path,
+                "Command Line": cmd_line
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        except Exception as e:
+            continue
+    
+    # Sort by CPU usage
+    try:
+        processes.sort(key=lambda x: float(x['CPU %']), reverse=True)
+    except:
+        pass
+    
+    return processes[:100]  # Return top 100 processes
+
+def get_network_analysis_extended():
+    """Get comprehensive network analysis"""
+    network_info = []
+    
+    # Network interfaces
+    try:
+        addrs = psutil.net_if_addrs()
+        stats = psutil.net_if_stats()
+        io_counters = psutil.net_io_counters(pernic=True)
+        
+        for interface in addrs:
+            iface_info = {
+                "Interface": interface,
+                "Status": "UP" if interface in stats and stats[interface].isup else "DOWN",
+                "MTU": stats[interface].mtu if interface in stats else "N/A",
+                "Speed": f"{stats[interface].speed} Mbps" if interface in stats and stats[interface].speed > 0 else "N/A",
+                "MAC": "N/A",
+                "IPv4": [],
+                "IPv6": []
+            }
+            
+            # Get addresses
+            for addr in addrs[interface]:
+                if addr.family == -1:  # MAC
+                    iface_info["MAC"] = addr.address
+                elif addr.family == 2:  # IPv4
+                    if addr.netmask:
+                        iface_info["IPv4"].append(f"{addr.address}/{addr.netmask}")
+                    else:
+                        iface_info["IPv4"].append(addr.address)
+                elif addr.family == 23:  # IPv6
+                    iface_info["IPv6"].append(addr.address)
+            
+            # Get IO stats
+            if interface in io_counters:
+                io = io_counters[interface]
+                iface_info.update({
+                    "Bytes Sent": format_bytes(io.bytes_sent),
+                    "Bytes Recv": format_bytes(io.bytes_recv),
+                    "Packets Sent": f"{io.packets_sent:,}",
+                    "Packets Recv": f"{io.packets_recv:,}",
+                    "Errors In": f"{io.errin:,}",
+                    "Errors Out": f"{io.errout:,}",
+                    "Dropped In": f"{io.dropin:,}",
+                    "Dropped Out": f"{io.dropout:,}"
+                })
+            
+            # Join lists to strings
+            iface_info["IPv4"] = ", ".join(iface_info["IPv4"]) if iface_info["IPv4"] else "N/A"
+            iface_info["IPv6"] = ", ".join(iface_info["IPv6"]) if iface_info["IPv6"] else "N/A"
+            
+            network_info.append(iface_info)
+    except Exception as e:
+        network_info.append({
+            "Interface": "Error",
+            "Status": f"Collection failed: {str(e)[:50]}",
+            "MTU": "N/A",
+            "Speed": "N/A"
+        })
+    
+    # Active connections
+    try:
+        connections = []
+        for conn in psutil.net_connections(kind='inet'):
+            try:
+                if conn.status == 'ESTABLISHED':
+                    connections.append({
+                        "Protocol": conn.type.name,
+                        "Local": f"{conn.laddr.ip}:{conn.laddr.port}",
+                        "Remote": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "N/A",
+                        "Status": conn.status,
+                        "PID": conn.pid
+                    })
+            except:
+                continue
+        
+        # Add connections as separate section
+        for i, conn in enumerate(connections[:20]):  # Limit to 20 connections
+            network_info.append({
+                "Interface": f"CONN_{i+1}",
+                "Protocol": conn["Protocol"],
+                "Local": conn["Local"],
+                "Remote": conn["Remote"],
+                "Status": conn["Status"],
+                "PID": conn["PID"]
+            })
+    except:
+        pass
+    
+    return network_info
+
+def get_security_audit():
+    """Perform security audit"""
+    security_info = []
+    
+    if platform.system() == "Windows":
+        # Check for admin privileges
+        try:
+            if CTYPES_AVAILABLE:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+            else:
+                is_admin = False
+            security_info.append({
+                "Security Feature": "Admin Privileges",
+                "Status": "Yes" if is_admin else "No",
+                "Risk": "High" if is_admin else "Low"
+            })
+        except:
+            security_info.append({
+                "Security Feature": "Admin Privileges",
+                "Status": "Unknown",
+                "Risk": "Unknown"
+            })
+        
+        # Try to check firewall
+        try:
+            firewall_status = run_command_with_timeout("netsh advfirewall show allprofiles", 5)
+            if "ON" in firewall_status:
+                security_info.append({
+                    "Security Feature": "Firewall",
+                    "Status": "Enabled",
+                    "Risk": "Low"
+                })
+            else:
+                security_info.append({
+                    "Security Feature": "Firewall",
+                    "Status": "Disabled",
+                    "Risk": "High"
+                })
+        except:
+            security_info.append({
+                "Security Feature": "Firewall",
+                "Status": "Unknown",
+                "Risk": "Medium"
+            })
+    else:
+        # For non-Windows systems
+        try:
+            is_admin = os.getuid() == 0
+            security_info.append({
+                "Security Feature": "Root Privileges",
+                "Status": "Yes" if is_admin else "No",
+                "Risk": "High" if is_admin else "Low"
+            })
+        except:
+            pass
+        
+        security_info.append({
+            "Security Feature": "Platform",
+            "Status": f"{platform.system()}",
+            "Risk": "N/A"
+        })
+    
+    return security_info
+
+def get_installed_software_extended():
+    """Get detailed installed software information"""
+    software_list = []
+    
+    if platform.system() == "Windows":
+        try:
+            # Try using wmic command
+            output = run_command_with_timeout('wmic product get name,version,vendor /format:csv', 15)
+            if output and "No Instance" not in output:
+                lines = output.split('\n')
+                for line in lines:
+                    if ',' in line and 'Node' not in line:
+                        parts = line.split(',')
+                        if len(parts) >= 4:
+                            software_list.append({
+                                "Name": parts[1][:50],
+                                "Version": parts[2],
+                                "Publisher": parts[3],
+                                "Install Date": "N/A",
+                                "Install Location": "N/A"
+                            })
+            
+            # If wmic failed, try registry
+            if not software_list and WINREG_AVAILABLE:
+                try:
+                    registry_paths = [
+                        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+                    ]
+                    
+                    for reg_path in registry_paths:
+                        try:
+                            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
+                            for i in range(0, min(100, winreg.QueryInfoKey(key)[0])):
+                                try:
+                                    subkey_name = winreg.EnumKey(key, i)
+                                    subkey = winreg.OpenKey(key, subkey_name)
+                                    
+                                    try:
+                                        display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
+                                    except:
+                                        display_name = None
+                                    
+                                    if display_name:
+                                        software_info = {
+                                            "Name": (display_name[:50] + "...") if len(display_name) > 50 else display_name,
+                                            "Version": "N/A",
+                                            "Publisher": "N/A",
+                                            "Install Date": "N/A",
+                                            "Install Location": "N/A"
+                                        }
+                                        
+                                        try:
+                                            software_info["Version"] = winreg.QueryValueEx(subkey, "DisplayVersion")[0]
+                                        except:
+                                            pass
+                                        
+                                        try:
+                                            software_info["Publisher"] = winreg.QueryValueEx(subkey, "Publisher")[0]
+                                        except:
+                                            pass
+                                        
+                                        software_list.append(software_info)
+                                    
+                                    winreg.CloseKey(subkey)
+                                except:
+                                    continue
+                            
+                            winreg.CloseKey(key)
+                        except:
+                            continue
+                except:
+                    pass
+            
+        except Exception as e:
+            software_list.append({
+                "Name": f"Error: {str(e)[:50]}",
+                "Version": "N/A",
+                "Publisher": "N/A"
+            })
+    else:
+        # For Linux/Mac
+        try:
+            # Try to get installed packages
+            if platform.system() == "Linux":
+                output = run_command_with_timeout("dpkg-query -l | tail -n +6 | head -20", 10)
+                if output:
+                    lines = output.split('\n')
+                    for line in lines:
+                        if line.strip():
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                software_list.append({
+                                    "Name": parts[1][:50],
+                                    "Version": parts[2],
+                                    "Publisher": "System Package",
+                                    "Install Date": "N/A",
+                                    "Install Location": "N/A"
+                                })
+            elif platform.system() == "Darwin":  # macOS
+                output = run_command_with_timeout("system_profiler SPApplicationsDataType | grep -A2 'Location:' | head -30", 10)
+                if output:
+                    lines = output.split('\n')
+                    current_name = ""
+                    for line in lines:
+                        if 'Location:' in line:
+                            path = line.split('Location:')[1].strip()
+                            name = os.path.basename(path).replace('.app', '')
+                            if name:
+                                software_list.append({
+                                    "Name": name[:50],
+                                    "Version": "N/A",
+                                    "Publisher": "macOS Application",
+                                    "Install Date": "N/A",
+                                    "Install Location": path[:50]
+                                })
+        except:
+            pass
+        
+        if not software_list:
+            software_list.append({
+                "Name": f"Non-Windows system: {platform.system()}",
+                "Version": "N/A",
+                "Publisher": "N/A"
+            })
+    
+    # Remove duplicates
+    seen = set()
+    unique_software = []
+    for item in software_list:
+        identifier = item["Name"]
+        if identifier not in seen:
+            seen.add(identifier)
+            unique_software.append(item)
+    
+    return unique_software[:50]
+
+def get_system_services_extended():
+    """Get detailed service information"""
+    services = []
+    
+    if platform.system() == "Windows":
+        try:
+            # Use wmic for service information
+            output = run_command_with_timeout('wmic service get name,displayname,state,startmode,pathname /format:csv', 10)
+            if output and "No Instance" not in output:
+                lines = output.split('\n')
+                for line in lines:
+                    if ',' in line and 'Node' not in line:
+                        parts = line.split(',')
+                        if len(parts) >= 6:
+                            services.append({
+                                "Name": parts[1][:20],
+                                "Display Name": parts[2][:30],
+                                "State": parts[3],
+                                "Start Mode": parts[4],
+                                "Path": (parts[5][:30] + "...") if len(parts[5]) > 30 else parts[5]
+                            })
+            
+            # Fallback to psutil
+            if not services:
+                for service in psutil.win_service_iter():
+                    try:
+                        info = service.as_dict()
+                        services.append({
+                            "Name": info.get('name', 'N/A')[:20],
+                            "Display Name": info.get('display_name', 'N/A')[:30],
+                            "State": info.get('status', 'N/A'),
+                            "Start Mode": info.get('start_type', 'N/A'),
+                            "Path": (info.get('binpath', 'N/A')[:30] + "...") if info.get('binpath') and len(info.get('binpath', '')) > 30 else info.get('binpath', 'N/A')
+                        })
+                    except:
+                        continue
+        except Exception as e:
+            services.append({
+                "Name": f"Error: {str(e)[:30]}",
+                "Display Name": "Service enumeration failed",
+                "State": "N/A",
+                "Start Mode": "N/A"
+            })
+    else:
+        # For Linux systems
+        try:
+            if platform.system() == "Linux":
+                output = run_command_with_timeout("systemctl list-units --type=service --all --no-pager | head -30", 10)
+                if output:
+                    lines = output.split('\n')
+                    for line in lines[1:]:  # Skip header
+                        if line.strip():
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                services.append({
+                                    "Name": parts[0][:20],
+                                    "Display Name": parts[0][:30],
+                                    "State": parts[3],
+                                    "Start Mode": "N/A",
+                                    "Path": "System Service"
+                                })
+        except:
+            pass
+        
+        if not services:
+            services.append({
+                "Name": f"Non-Windows: {platform.system()}",
+                "Display Name": "Services not available",
+                "State": "N/A",
+                "Start Mode": "N/A"
+            })
+    
+    return services[:30]
+
+def get_startup_programs():
+    """Get startup programs"""
+    startup_programs = []
+    
+    if platform.system() == "Windows":
+        startup_paths = [
+            os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup"),
+            os.path.join(os.environ.get("PROGRAMDATA", ""), r"Microsoft\Windows\Start Menu\Programs\StartUp"),
+        ]
+        
+        for path in startup_paths:
+            if os.path.exists(path):
+                try:
+                    for file in os.listdir(path):
+                        if file.lower().endswith(('.lnk', '.exe', '.bat', '.cmd')):
+                            full_path = os.path.join(path, file)
+                            try:
+                                file_size = os.path.getsize(full_path)
+                                mod_time = datetime.fromtimestamp(os.path.getmtime(full_path))
+                                startup_programs.append({
+                                    "Name": file[:30],
+                                    "Path": (full_path[:50] + "...") if len(full_path) > 50 else full_path,
+                                    "Size": format_bytes(file_size),
+                                    "Modified": mod_time.strftime('%Y-%m-%d'),
+                                    "Type": "Startup"
+                                })
+                            except:
+                                continue
+                except:
+                    continue
+    elif platform.system() == "Linux":
+        # Check common startup locations
+        startup_paths = [
+            "/etc/rc.local",
+            "/etc/init.d/",
+            os.path.expanduser("~/.config/autostart"),
+            os.path.expanduser("~/.config/autostart-scripts")
+        ]
+        
+        for path in startup_paths:
+            if os.path.exists(path):
+                if os.path.isfile(path):
+                    try:
+                        file_size = os.path.getsize(path)
+                        mod_time = datetime.fromtimestamp(os.path.getmtime(path))
+                        startup_programs.append({
+                            "Name": os.path.basename(path)[:30],
+                            "Path": path[:50],
+                            "Size": format_bytes(file_size),
+                            "Modified": mod_time.strftime('%Y-%m-%d'),
+                            "Type": "Startup Script"
+                        })
+                    except:
+                        pass
+                elif os.path.isdir(path):
+                    try:
+                        for file in os.listdir(path)[:5]:  # Limit to 5 files
+                            full_path = os.path.join(path, file)
+                            if os.path.isfile(full_path):
+                                file_size = os.path.getsize(full_path)
+                                mod_time = datetime.fromtimestamp(os.path.getmtime(full_path))
+                                startup_programs.append({
+                                    "Name": file[:30],
+                                    "Path": (full_path[:50] + "...") if len(full_path) > 50 else full_path,
+                                    "Size": format_bytes(file_size),
+                                    "Modified": mod_time.strftime('%Y-%m-%d'),
+                                    "Type": "Startup"
+                                })
+                    except:
+                        pass
+    
+    return startup_programs[:20]
+
+def get_system_environment_extended():
+    """Get comprehensive environment variables"""
+    env_vars = []
+    
+    try:
+        # System environment variables
+        for key, value in os.environ.items():
+            # Filter out sensitive data
+            if not any(sensitive in key.lower() for sensitive in ['password', 'secret', 'key', 'token', 'credential']):
+                env_vars.append({
+                    "Variable": key[:30],
+                    "Value": (value[:80] + "...") if len(value) > 80 else value,
+                    "Type": "System"
+                })
+        
+        # Path variable broken down (limited)
+        if 'PATH' in os.environ:
+            paths = os.environ['PATH'].split(os.pathsep)
+            for i, path in enumerate(paths[:5]):  # First 5 paths only
+                env_vars.append({
+                    "Variable": f"PATH[{i}]",
+                    "Value": (path[:100] + "...") if len(path) > 100 else path,
+                    "Type": "Path Entry"
+                })
+    except Exception as e:
+        env_vars.append({
+            "Variable": "Error",
+            "Value": f"Failed to get env vars: {str(e)[:50]}",
+            "Type": "Error"
+        })
+    
+    return env_vars[:30]
+
+def get_hardware_temperatures():
+    """Get hardware temperatures if available"""
+    temps = []
+    
+    try:
+        sensors = psutil.sensors_temperatures()
+        if sensors:
+            for name, entries in sensors.items():
+                for entry in entries:
+                    temps.append({
+                        "Sensor": name[:20],
+                        "Label": (entry.label[:20] + "...") if entry.label and len(entry.label) > 20 else entry.label or "N/A",
+                        "Current": f"{entry.current}°C",
+                        "High": f"{entry.high}°C" if entry.high else "N/A",
+                        "Critical": f"{entry.critical}°C" if entry.critical else "N/A"
+                    })
+    except:
+        pass
+    
+    if not temps:
+        temps.append({
+            "Sensor": "No sensors",
+            "Label": "Temperature data not available",
+            "Current": "N/A",
+            "High": "N/A",
+            "Critical": "N/A"
+        })
+    
+    return temps[:15]
+
+def get_system_logs_extended():
+    """Get system logs"""
+    logs = []
+    
+    try:
+        # Recent events using psutil
+        boot_time = psutil.boot_time()
+        logs.append({
+            "Time": datetime.fromtimestamp(boot_time).strftime('%Y-%m-%d %H:%M:%S'),
+            "Event": "System Boot",
+            "Details": f"Boot time recorded"
+        })
+        
+        # User login information
+        current_user = getpass.getuser()
+        logs.append({
+            "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "Event": "User Session",
+            "Details": f"Current user: {current_user}"
+        })
+        
+        # Python process info
+        logs.append({
+            "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "Event": "Scanner Process",
+            "Details": f"PID: {os.getpid()}, Python: {sys.version.split()[0]}"
+        })
+        
+        # System load
+        try:
+            load_avg = os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0)
+            logs.append({
+                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "Event": "System Load",
+                "Details": f"Load average: {load_avg[0]:.2f}, {load_avg[1]:.2f}, {load_avg[2]:.2f}"
+            })
+        except:
+            pass
+        
+    except Exception as e:
+        logs.append({
+            "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "Event": "Error",
+            "Details": f"Log collection error: {str(e)[:50]}"
+        })
+    
+    return logs
+
+def get_performance_metrics():
+    """Get real-time performance metrics"""
+    metrics = []
+    
+    try:
+        # CPU Metrics
+        cpu_percent = psutil.cpu_percent(interval=0.5, percpu=False)
+        try:
+            cpu_percent_per_core = psutil.cpu_percent(interval=0.5, percpu=True)
+            core_details = ", ".join([f"{p}%" for p in cpu_percent_per_core[:4]])  # First 4 cores only
+            if len(cpu_percent_per_core) > 4:
+                core_details += f" ... (+{len(cpu_percent_per_core)-4} more)"
+        except:
+            core_details = "N/A"
+        
+        metrics.append({
+            "Metric": "CPU Usage",
+            "Value": f"{cpu_percent}%",
+            "Details": f"Cores: {core_details}"
+        })
+        
+        # Memory Metrics
+        memory = psutil.virtual_memory()
+        metrics.append({
+            "Metric": "Memory Usage",
+            "Value": f"{memory.percent}%",
+            "Details": f"{format_bytes(memory.used)} / {format_bytes(memory.total)}"
+        })
+        
+        # Swap Metrics
+        swap = psutil.swap_memory()
+        if swap.total > 0:
+            metrics.append({
+                "Metric": "Swap Usage",
+                "Value": f"{swap.percent}%",
+                "Details": f"{format_bytes(swap.used)} / {format_bytes(swap.total)}"
+            })
+        
+        # Disk I/O
+        try:
+            disk_io = psutil.disk_io_counters()
+            if disk_io:
+                metrics.append({
+                    "Metric": "Disk Read",
+                    "Value": format_bytes(disk_io.read_bytes),
+                    "Details": f"{disk_io.read_count:,} operations"
+                })
+                metrics.append({
+                    "Metric": "Disk Write",
+                    "Value": format_bytes(disk_io.write_bytes),
+                    "Details": f"{disk_io.write_count:,} operations"
+                })
+        except:
+            pass
+        
+        # Network I/O
+        try:
+            net_io = psutil.net_io_counters()
+            if net_io:
+                metrics.append({
+                    "Metric": "Network Sent",
+                    "Value": format_bytes(net_io.bytes_sent),
+                    "Details": f"{net_io.packets_sent:,} packets"
+                })
+                metrics.append({
+                    "Metric": "Network Received",
+                    "Value": format_bytes(net_io.bytes_recv),
+                    "Details": f"{net_io.packets_recv:,} packets"
+                })
+        except:
+            pass
+        
+        # Process count
+        try:
+            process_count = len(psutil.pids())
+            metrics.append({
+                "Metric": "Running Processes",
+                "Value": process_count,
+                "Details": f"System processes: {process_count}"
+            })
+        except:
+            pass
+        
+    except Exception as e:
+        metrics.append({
+            "Metric": "Error",
+            "Value": "Failed",
+            "Details": str(e)[:50]
+        })
+    
+    return metrics
+
+def get_user_accounts_extended():
+    """Get detailed user account information"""
+    users = []
+    
+    if platform.system() == "Windows":
+        try:
+            # Get current user
+            current_user = getpass.getuser()
+            users.append({
+                "Username": current_user,
+                "Full Name": "Current User",
+                "Active": "Yes",
+                "Last Logon": "Now"
+            })
+            
+            # Try to get other users via wmic
+            try:
+                output = run_command_with_timeout('wmic useraccount get name,fullname /format:csv', 10)
+                if output and "No Instance" not in output:
+                    lines = output.split('\n')
+                    for line in lines:
+                        if ',' in line and 'Node' not in line:
+                            parts = line.split(',')
+                            if len(parts) >= 3:
+                                username = parts[1]
+                                fullname = parts[2] if len(parts) > 2 else "N/A"
+                                if username != current_user:  # Don't add current user again
+                                    users.append({
+                                        "Username": username[:20],
+                                        "Full Name": fullname[:30],
+                                        "Active": "Unknown",
+                                        "Last Logon": "N/A"
+                                    })
+            except:
+                pass
+                
+        except Exception as e:
+            users.append({
+                "Username": f"Error: {str(e)[:30]}",
+                "Full Name": "N/A",
+                "Active": "N/A",
+                "Last Logon": "N/A"
+            })
+    else:
+        # For non-Windows systems
+        try:
+            current_user = getpass.getuser()
+            users.append({
+                "Username": current_user,
+                "Full Name": "Current User",
+                "Active": "Yes",
+                "Last Logon": "Now"
+            })
+            
+            # Try to get other users from /etc/passwd (Linux)
+            if platform.system() == "Linux":
+                try:
+                    with open('/etc/passwd', 'r') as f:
+                        lines = f.readlines()
+                        for line in lines[:10]:  # First 10 users only
+                            parts = line.split(':')
+                            if len(parts) >= 5:
+                                username = parts[0]
+                                fullname = parts[4].split(',')[0]
+                                if username != current_user and username not in ['root', 'daemon', 'bin']:
+                                    users.append({
+                                        "Username": username[:20],
+                                        "Full Name": fullname[:30],
+                                        "Active": "Yes",
+                                        "Last Logon": "N/A"
+                                    })
+                except:
+                    pass
+        except:
+            users.append({
+                "Username": f"Non-Windows: {platform.system()}",
+                "Full Name": "N/A",
+                "Active": "N/A",
+                "Last Logon": "N/A"
+            })
+    
+    return users[:15]
+
+def get_system_drivers_extended():
+    """Get detailed driver information"""
+    drivers = []
+    
+    if platform.system() == "Windows":
+        try:
+            output = run_command_with_timeout("driverquery /v", 15)
+            if output:
+                lines = output.split('\n')
+                for line in lines[3:]:  # Skip header
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            drivers.append({
+                                "Module Name": parts[0][:30],
+                                "Display Name": " ".join(parts[1:-4])[:40] if len(parts) > 5 else parts[1][:40],
+                                "Driver Type": parts[-4][:20],
+                                "Start Mode": parts[-3][:15],
+                                "State": parts[-2][:15]
+                            })
+            
+            # Limit to 20 drivers
+            drivers = drivers[:20]
+            
+        except Exception as e:
+            drivers.append({
+                "Module Name": f"Error: {str(e)[:30]}",
+                "Display Name": "Driver query failed",
+                "Driver Type": "N/A",
+                "Start Mode": "N/A"
+            })
+    else:
+        # For Linux systems
+        try:
+            if platform.system() == "Linux":
+                output = run_command_with_timeout("lsmod | head -20", 10)
+                if output:
+                    lines = output.split('\n')
+                    for line in lines[1:]:  # Skip header
+                        if line.strip():
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                drivers.append({
+                                    "Module Name": parts[0][:30],
+                                    "Display Name": "Kernel Module",
+                                    "Driver Type": "Module",
+                                    "Start Mode": "Loaded",
+                                    "State": "Active"
+                                })
+        except:
+            pass
+        
+        if not drivers:
+            drivers.append({
+                "Module Name": f"Non-Windows: {platform.system()}",
+                "Display Name": "Drivers not available",
+                "Driver Type": "N/A",
+                "Start Mode": "N/A"
+            })
+    
+    return drivers
+
+def get_wifi_networks_extended():
+    """Get detailed WiFi network information"""
+    wifi_networks = []
+    
+    if platform.system() == "Windows":
+        try:
+            # Get WiFi profiles
+            profiles_output = run_command_with_timeout("netsh wlan show profiles", 10)
+            
+            if profiles_output and "No wireless interface" not in profiles_output:
+                profiles = []
+                for line in profiles_output.split('\n'):
+                    if "All User Profile" in line and ":" in line:
+                        profile_name = line.split(":")[1].strip()
+                        if profile_name:
+                            profiles.append(profile_name)
+                
+                # Get details for each profile (limited to 5)
+                for profile in profiles[:5]:
+                    try:
+                        profile_output = run_command_with_timeout(f'netsh wlan show profile name="{profile}"', 10)
+                        
+                        details = {}
+                        if profile_output:
+                            for line in profile_output.split('\n'):
+                                line = line.strip()
+                                if "Authentication" in line and ":" in line:
+                                    details['Auth'] = line.split(":")[1].strip()
+                                elif "Cipher" in line and ":" in line:
+                                    details['Cipher'] = line.split(":")[1].strip()
+                        
+                        wifi_networks.append({
+                            "SSID": profile[:30],
+                            "Authentication": details.get('Auth', 'Unknown')[:20],
+                            "Cipher": details.get('Cipher', 'Unknown')[:20],
+                            "Password": "Not shown (encrypted)"
+                        })
+                        
+                    except:
+                        wifi_networks.append({
+                            "SSID": profile[:30],
+                            "Authentication": "Error",
+                            "Cipher": "Error",
+                            "Password": "Error retrieving"
+                        })
+            else:
+                wifi_networks.append({
+                    "SSID": "WiFi info",
+                    "Authentication": "No WiFi interface or profiles",
+                    "Cipher": "N/A",
+                    "Password": "N/A"
+                })
+        
+        except Exception as e:
+            wifi_networks.append({
+                "SSID": f"Error: {str(e)[:30]}",
+                "Authentication": "N/A",
+                "Cipher": "N/A",
+                "Password": "N/A"
+            })
+    else:
+        # For Linux systems
+        try:
+            if platform.system() == "Linux":
+                output = run_command_with_timeout("nmcli -t -f ssid,signal,security device wifi list | head -10", 10)
+                if output:
+                    lines = output.split('\n')
+                    for line in lines:
+                        if line.strip():
+                            parts = line.split(':')
+                            if len(parts) >= 3:
+                                wifi_networks.append({
+                                    "SSID": parts[0][:30],
+                                    "Authentication": parts[2][:20] if len(parts) > 2 else "Unknown",
+                                    "Cipher": "WPA2" if "WPA2" in parts[2] else "Unknown",
+                                    "Password": "Not available"
+                                })
+        except:
+            pass
+        
+        if not wifi_networks:
+            wifi_networks.append({
+                "SSID": f"Non-Windows: {platform.system()}",
+                "Authentication": "WiFi info not available",
+                "Cipher": "N/A",
+                "Password": "N/A"
+            })
+    
+    return wifi_networks
+
+# -------------------------------------------------------------------
+#  STATISTICS AND GRAPH FUNCTIONS
+# -------------------------------------------------------------------
+def calculate_health_score(all_data):
+    """Calculate system health score based on collected data"""
+    score = 85  # Base score
+    
+    try:
+        # Check memory usage
+        for item in all_data.get("hardware_info", []):
+            if item.get("Category") == "MEMORY" and "Usage" in item:
+                usage_str = item["Usage"]
+                if "%" in usage_str:
+                    try:
+                        usage = float(usage_str.replace("%", "").strip())
+                        if usage > 90:
+                            score -= 20
+                        elif usage > 80:
+                            score -= 10
+                        elif usage > 70:
+                            score -= 5
+                    except:
+                        pass
+        
+        # Check disk usage
+        for item in all_data.get("hardware_info", []):
+            if item.get("Category") == "DISK" and "Usage" in item:
+                usage_str = item["Usage"]
+                if "%" in usage_str:
+                    try:
+                        usage = float(usage_str.replace("%", "").strip())
+                        if usage > 95:
+                            score -= 15
+                        elif usage > 90:
+                            score -= 10
+                        elif usage > 85:
+                            score -= 5
+                    except:
+                        pass
+        
+        # Check security
+        for item in all_data.get("security_audit", []):
+            if item.get("Risk") == "High":
+                score -= 5
+        
+        # Check CPU usage from performance metrics
+        for item in all_data.get("performance_metrics", []):
+            if item.get("Metric") == "CPU Usage":
+                value_str = item.get("Value", "0%")
+                if "%" in value_str:
+                    try:
+                        cpu_usage = float(value_str.replace("%", ""))
+                        if cpu_usage > 90:
+                            score -= 15
+                        elif cpu_usage > 80:
+                            score -= 10
+                        elif cpu_usage > 70:
+                            score -= 5
+                    except:
+                        pass
+        
+        # Bonus for good conditions
+        # Check if memory usage is low
+        memory_ok = False
+        for item in all_data.get("hardware_info", []):
+            if item.get("Category") == "MEMORY" and "Usage" in item:
+                usage_str = item["Usage"]
+                if "%" in usage_str:
+                    try:
+                        if float(usage_str.replace("%", "")) < 50:
+                            memory_ok = True
+                    except:
+                        pass
+        
+        # Check if disk usage is reasonable
+        disk_ok = True
+        disk_count = 0
+        for item in all_data.get("hardware_info", []):
+            if item.get("Category") == "DISK" and "Usage" in item:
+                usage_str = item["Usage"]
+                if "%" in usage_str:
+                    try:
+                        if float(usage_str.replace("%", "")) > 90:
+                            disk_ok = False
+                        disk_count += 1
+                    except:
+                        pass
+        
+        if memory_ok and disk_ok and disk_count > 0:
+            score += 10
+        
+        # Ensure score is within bounds
+        score = max(0, min(100, score))
+        
+    except:
+        score = 85  # Default if calculation fails
+    
+    return score
+
 def calculate_system_statistics(all_data):
     """Calculate comprehensive system statistics"""
     stats = {}
@@ -219,24 +1475,36 @@ def calculate_system_statistics(all_data):
     processes = all_data.get("process_info", [])
     if processes:
         try:
-            cpu_usages = [float(p.get("CPU %", "0").replace("%", "")) for p in processes if "CPU %" in p]
-            memory_usages = [float(p.get("Memory %", "0").replace("%", "")) for p in processes if "Memory %" in p]
+            cpu_usages = []
+            memory_usages = []
+            for p in processes:
+                if "CPU %" in p:
+                    try:
+                        cpu_usages.append(float(p["CPU %"].replace("%", "")))
+                    except:
+                        pass
+                if "Memory %" in p:
+                    try:
+                        memory_usages.append(float(p["Memory %"].replace("%", "")))
+                    except:
+                        pass
             
-            stats["process_count"] = len(processes)
-            stats["avg_cpu_usage"] = statistics.mean(cpu_usages) if cpu_usages else 0
-            stats["max_cpu_usage"] = max(cpu_usages) if cpu_usages else 0
-            stats["avg_memory_usage"] = statistics.mean(memory_usages) if memory_usages else 0
-            stats["max_memory_usage"] = max(memory_usages) if memory_usages else 0
+            if cpu_usages:
+                stats["process_count"] = len(processes)
+                stats["avg_cpu_usage"] = statistics.mean(cpu_usages) if cpu_usages else 0
+                stats["max_cpu_usage"] = max(cpu_usages) if cpu_usages else 0
+            
+            if memory_usages:
+                stats["avg_memory_usage"] = statistics.mean(memory_usages) if memory_usages else 0
+                stats["max_memory_usage"] = max(memory_usages) if memory_usages else 0
             
             # Process status distribution
-            status_counts = Counter([p.get("Status", "UNKNOWN") for p in processes])
-            stats["process_status_dist"] = dict(status_counts)
+            status_counts = {}
+            for p in processes:
+                status = p.get("Status", "UNKNOWN")
+                status_counts[status] = status_counts.get(status, 0) + 1
+            stats["process_status_dist"] = status_counts
             
-            # Top processes by CPU and Memory
-            top_cpu = sorted(processes, key=lambda x: float(x.get("CPU %", "0").replace("%", "")), reverse=True)[:5]
-            top_memory = sorted(processes, key=lambda x: float(x.get("Memory %", "0").replace("%", "")), reverse=True)[:5]
-            stats["top_cpu_processes"] = [(p["Name"], p["CPU %"]) for p in top_cpu]
-            stats["top_memory_processes"] = [(p["Name"], p["Memory %"]) for p in top_memory]
         except:
             pass
     
@@ -289,42 +1557,27 @@ def calculate_system_statistics(all_data):
     software = all_data.get("installed_software", [])
     if software:
         stats["installed_software_count"] = len(software)
-        
-        # Count by publisher (top 5)
-        publishers = Counter([s.get("Publisher", "Unknown") for s in software])
-        stats["top_publishers"] = dict(publishers.most_common(5))
     
     # Service statistics
     services = all_data.get("system_services", [])
     if services:
-        running_services = len([s for s in services if s.get("State") == "RUNNING"])
+        running_services = len([s for s in services if s.get("State") in ["RUNNING", "Running"]])
         stats["running_services"] = running_services
         stats["total_services"] = len(services)
     
     # User statistics
     users = all_data.get("user_accounts", [])
     if users:
-        active_users = len([u for u in users if u.get("Active", "").lower() == "yes"])
+        active_users = len([u for u in users if u.get("Active", "").lower() in ["yes", "true"]])
         stats["active_users"] = active_users
         stats["total_users"] = len(users)
-    
-    # Performance metrics
-    perf_metrics = all_data.get("performance_metrics", [])
-    if perf_metrics:
-        for metric in perf_metrics:
-            if metric.get("Metric") == "CPU Usage":
-                usage_str = metric.get("Value", "0%")
-                if "%" in usage_str:
-                    try:
-                        stats["current_cpu_usage"] = float(usage_str.replace("%", ""))
-                    except:
-                        pass
     
     return stats
 
 def generate_statistics_summary(all_data):
     """Generate comprehensive statistics summary"""
     stats = calculate_system_statistics(all_data)
+    health_score = calculate_health_score(all_data)
     
     summary = []
     
@@ -354,8 +1607,7 @@ def generate_statistics_summary(all_data):
     if "disk_count" in stats:
         summary.append({"Category": "HARDWARE", "Metric": "Storage Devices", "Value": stats['disk_count']})
     
-    # Add computed health metrics
-    health_score = calculate_health_score(all_data)
+    # Health Statistics
     summary.append({"Category": "HEALTH", "Metric": "System Health Score", "Value": f"{health_score}/100"})
     
     # Add risk assessment
@@ -368,16 +1620,16 @@ def generate_statistics_summary(all_data):
     
     return summary
 
-# -------------------------------------------------------------------
-#  GRAPH GENERATION FUNCTIONS (Text-based ASCII Graphs)
-# -------------------------------------------------------------------
 def generate_bar_graph(data_points, title="", width=50, max_value=None):
     """Generate ASCII bar graph"""
     if not data_points:
         return ""
     
     if max_value is None:
-        max_value = max(data_points.values()) if isinstance(data_points, dict) else max(data_points)
+        if isinstance(data_points, dict):
+            max_value = max(data_points.values())
+        else:
+            max_value = max(data_points)
     
     if max_value == 0:
         max_value = 1
@@ -394,14 +1646,14 @@ def generate_bar_graph(data_points, title="", width=50, max_value=None):
         for key, value in data_points.items():
             bar_length = int((value / max_value) * width)
             bar = "█" * bar_length
-            percentage = (value / max_value) * 100
+            percentage = (value / max_value) * 100 if max_value > 0 else 0
             graph_lines.append(f"{str(key):<{max_key_len}} |{Colors.GREEN}{bar}{Colors.RESET}| {value} ({percentage:.1f}%)")
     else:
         # For list data
         for i, value in enumerate(data_points):
             bar_length = int((value / max_value) * width)
             bar = "█" * bar_length
-            percentage = (value / max_value) * 100
+            percentage = (value / max_value) * 100 if max_value > 0 else 0
             graph_lines.append(f"Item {i+1:2d} |{Colors.GREEN}{bar}{Colors.RESET}| {value} ({percentage:.1f}%)")
     
     return "\n".join(graph_lines)
@@ -433,49 +1685,6 @@ def generate_pie_chart(data_points, title=""):
         chart_lines.append(f"{segment_char} {key[:30]:30} {Colors.GREEN}{percentage:5.1f}%{Colors.RESET} ({value})")
     
     return "\n".join(chart_lines)
-
-def generate_histogram(data_points, title="", bins=10):
-    """Generate ASCII histogram"""
-    if not data_points:
-        return ""
-    
-    if len(data_points) < 2:
-        return ""
-    
-    try:
-        min_val = min(data_points)
-        max_val = max(data_points)
-        
-        if min_val == max_val:
-            return ""
-        
-        bin_width = (max_val - min_val) / bins
-        histogram = [0] * bins
-        
-        for value in data_points:
-            bin_index = min(int((value - min_val) / bin_width), bins - 1)
-            histogram[bin_index] += 1
-        
-        # Generate histogram
-        max_freq = max(histogram)
-        if max_freq == 0:
-            return ""
-        
-        hist_lines = []
-        if title:
-            hist_lines.append(f"> {title}")
-            hist_lines.append("─" * (len(title) + 2))
-        
-        for i, freq in enumerate(histogram):
-            bar_length = int((freq / max_freq) * 30)
-            bar = "█" * bar_length
-            lower_bound = min_val + (i * bin_width)
-            upper_bound = min_val + ((i + 1) * bin_width)
-            hist_lines.append(f"{lower_bound:6.1f}-{upper_bound:6.1f} |{Colors.GREEN}{bar}{Colors.RESET}| {freq}")
-        
-        return "\n".join(hist_lines)
-    except:
-        return ""
 
 def generate_cpu_usage_graph(processes):
     """Generate CPU usage graph for top processes"""
@@ -548,9 +1757,12 @@ def generate_service_status_graph(services):
     if not services:
         return ""
     
-    status_counts = Counter([s.get("State", "UNKNOWN") for s in services])
+    status_counts = {}
+    for s in services:
+        state = s.get("State", "UNKNOWN")
+        status_counts[state] = status_counts.get(state, 0) + 1
     
-    return generate_pie_chart(dict(status_counts), "Service Status Distribution")
+    return generate_pie_chart(status_counts, "Service Status Distribution")
 
 def generate_network_activity_graph(network_info):
     """Generate network interface activity graph"""
@@ -597,35 +1809,8 @@ def generate_system_health_graph(health_score):
     health_lines.append(f"[{color}{meter}{Colors.RESET}]")
     health_lines.append(f"Score: {color}{health_score}/100{Colors.RESET} - Status: {color}{status}{Colors.RESET}")
     
-    # Add breakdown
-    health_lines.append("")
-    health_lines.append("> HEALTH BREAKDOWN")
-    
-    # Simulated breakdown (in real implementation, this would use actual metrics)
-    breakdown = {
-        "CPU Performance": min(health_score + 5, 100),
-        "Memory Usage": max(health_score - 10, 0),
-        "Disk Health": min(health_score + 15, 100),
-        "Network Stability": min(health_score + 20, 100),
-        "Security Status": max(health_score - 5, 0)
-    }
-    
-    for metric, score in breakdown.items():
-        filled = int((score / 100) * 30)
-        meter = "█" * filled + "░" * (30 - filled)
-        if score >= 80:
-            m_color = Colors.GREEN
-        elif score >= 60:
-            m_color = Colors.YELLOW
-        else:
-            m_color = Colors.RED
-        health_lines.append(f"{metric:20} [{m_color}{meter}{Colors.RESET}] {score:3.0f}%")
-    
     return "\n".join(health_lines)
 
-# -------------------------------------------------------------------
-#  ENHANCED DATA COLLECTION WITH STATISTICS
-# -------------------------------------------------------------------
 def get_comprehensive_statistics(all_data):
     """Get comprehensive statistics and graphs"""
     stats_data = []
@@ -674,9 +1859,180 @@ def get_system_graphs(all_data):
     
     return graphs
 
+def get_health_color(score):
+    """Get health color based on score"""
+    if score >= 80:
+        return "linear-gradient(135deg, #00ff00 0%, #00cc00 100%)"
+    elif score >= 60:
+        return "linear-gradient(135deg, #ffff00 0%, #cccc00 100%)"
+    else:
+        return "linear-gradient(135deg, #ff0000 0%, #cc0000 100%)"
+
 # -------------------------------------------------------------------
-#  ENHANCED HTML REPORT WITH GRAPHS
+#  HTML GENERATION FUNCTIONS
 # -------------------------------------------------------------------
+def generate_section_html(section_name, data):
+    """Generate HTML for a specific section"""
+    if not data:
+        return f"""
+        <div class="section">
+            <h2>> {section_name}</h2>
+            <p style="color: #006600; text-align: center; padding: 20px;">> NO DATA AVAILABLE</p>
+        </div>
+        """
+    
+    html = f"""
+    <div class="section">
+        <h2>> {section_name}</h2>
+    """
+    
+    if isinstance(data, list) and len(data) > 0:
+        # Determine if it's a key-value list or table data
+        if isinstance(data[0], list) and len(data[0]) == 2:
+            # Key-value format (for system_info)
+            html += '<table>'
+            for item in data:
+                if len(item) == 2:
+                    key, value = item
+                    html += f'''
+                    <tr>
+                        <td style="width: 30%;"><span style="color: #00ff00;">></span> {key}</td>
+                        <td style="width: 70%;">{value}</td>
+                    </tr>
+                    '''
+            html += '</table>'
+        elif isinstance(data[0], dict):
+            # Table format
+            if data:
+                headers = list(data[0].keys())
+                html += '<div class="scroll-container"><table>'
+                html += '<thead><tr>' + ''.join(f'<th>{header}</th>' for header in headers) + '</tr></thead>'
+                html += '<tbody>'
+                
+                for row in data:
+                    html += '<tr>'
+                    for header in headers:
+                        cell = str(row.get(header, ''))
+                        cell_class = ""
+                        
+                        # Apply status classes
+                        cell_lower = cell.lower()
+                        header_lower = header.lower()
+                        
+                        if any(status_word in header_lower for status_word in ['status', 'state', 'active', 'enabled', 'risk']):
+                            if any(good_word in cell_lower for good_word in ['active', 'enabled', 'yes', 'true', 'running', 'low']):
+                                cell_class = "status-active"
+                            elif any(bad_word in cell_lower for bad_word in ['inactive', 'disabled', 'no', 'false', 'stopped', 'high', 'critical']):
+                                cell_class = "status-critical"
+                            elif 'warning' in cell_lower or 'medium' in cell_lower:
+                                cell_class = "status-warning"
+                        
+                        if cell_class:
+                            html += f'<td class="{cell_class}">{cell}</td>'
+                        else:
+                            html += f'<td>{cell}</td>'
+                    html += '</tr>'
+                
+                html += '</tbody></table></div>'
+    
+    html += '</div>'
+    return html
+
+def generate_statistics_html(stats_data, health_score):
+    """Generate HTML for statistics dashboard"""
+    if not stats_data:
+        return "<p style='color: #006600; text-align: center;'>No statistics available</p>"
+    
+    # Group by category
+    stats_by_category = {}
+    for stat in stats_data:
+        category = stat.get("Category", "Other")
+        if category not in stats_by_category:
+            stats_by_category[category] = []
+        stats_by_category[category].append(stat)
+    
+    html = ""
+    
+    # Health meter
+    html += f"""
+    <div class="health-meter">
+        <div class="health-fill" style="width: {health_score}%;"></div>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+        <span style="color: #00ff00; font-weight: bold;">System Health: {health_score}/100</span>
+    </div>
+    """
+    
+    # Statistics grid
+    html += '<div class="stats-grid">'
+    
+    for category, stats in stats_by_category.items():
+        for stat in stats:
+            metric = stat.get("Metric", "")
+            value = stat.get("Value", "")
+            
+            # Determine color based on value
+            value_str = str(value)
+            value_color = "#00ff00"  # Default green
+            
+            if "%" in value_str:
+                try:
+                    num_value = float(value_str.replace("%", ""))
+                    if "Usage" in metric or "CPU" in metric or "Memory" in metric:
+                        if num_value < 60:
+                            value_color = "#00ff00"  # Green
+                        elif num_value < 80:
+                            value_color = "#ffff00"  # Yellow
+                        else:
+                            value_color = "#ff0000"  # Red
+                except:
+                    pass
+            
+            html += f"""
+            <div class="stat-card">
+                <h3>{metric}</h3>
+                <div class="stat-value" style="color: {value_color};">{value}</div>
+                <div class="stat-label">{category}</div>
+            </div>
+            """
+    
+    html += '</div>'
+    
+    return html
+
+def generate_graphs_html(graphs_data):
+    """Generate HTML for graphs"""
+    if not graphs_data:
+        return "<p style='color: #006600; text-align: center;'>No graphs available</p>"
+    
+    html = '<div class="stats-grid">'
+    
+    for graph in graphs_data:
+        graph_type = graph.get("Graph Type", "")
+        visualization = graph.get("Visualization", "")
+        
+        # Convert ASCII graph to HTML with green color
+        graph_html = visualization.replace("█", '<span style="color: #00ff00;">█</span>')
+        graph_html = graph_html.replace("◉", '<span style="color: #00ff00;">◉</span>')
+        graph_html = graph_html.replace("◐", '<span style="color: #00cc00;">◐</span>')
+        graph_html = graph_html.replace("◑", '<span style="color: #009900;">◑</span>')
+        graph_html = graph_html.replace("◒", '<span style="color: #006600;">◒</span>')
+        graph_html = graph_html.replace("○", '<span style="color: #00ff00;">○</span>')
+        graph_html = graph_html.replace("◎", '<span style="color: #00cc00;">◎</span>')
+        graph_html = graph_html.replace("●", '<span style="color: #009900;">●</span>')
+        graph_html = graph_html.replace("◌", '<span style="color: #006600;">◌</span>')
+        
+        html += f"""
+        <div class="graph-container">
+            <div class="graph-title">{graph_type}</div>
+            <div class="graph">{graph_html}</div>
+        </div>
+        """
+    
+    html += '</div>'
+    
+    return html
+
 def generate_html_with_graphs(all_data, health_score, timestamp):
     """Generate HTML content with graphs"""
     
@@ -885,14 +2241,6 @@ def generate_html_with_graphs(all_data, health_score, timestamp):
             line-height: 1.3;
         }}
 
-        .graph-bar {{
-            display: inline-block;
-            background: #00ff00;
-            height: 15px;
-            margin-right: 2px;
-            vertical-align: middle;
-        }}
-
         table {{
             width: 100%;
             border-collapse: collapse;
@@ -1031,52 +2379,6 @@ def generate_html_with_graphs(all_data, health_score, timestamp):
             background: {health_color};
             transition: width 0.5s ease;
         }}
-
-        /* Graph visualization styles */
-        .graph-visual {{
-            margin: 10px 0;
-            padding: 10px;
-            background: rgba(0, 5, 0, 0.5);
-            border: 1px solid #002200;
-        }}
-
-        .bar-graph {{
-            display: flex;
-            align-items: flex-end;
-            height: 200px;
-            gap: 2px;
-            padding: 10px;
-            background: rgba(0, 10, 0, 0.3);
-        }}
-
-        .bar {{
-            flex: 1;
-            background: linear-gradient(to top, #00ff00, #009900);
-            min-height: 1px;
-            position: relative;
-        }}
-
-        .bar-label {{
-            position: absolute;
-            bottom: -20px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            font-size: 0.7em;
-            color: #00cc00;
-            transform: rotate(-45deg);
-            transform-origin: left top;
-        }}
-
-        .bar-value {{
-            position: absolute;
-            top: -20px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            font-size: 0.8em;
-            color: #00ff00;
-        }}
     </style>
 </head>
 <body>
@@ -1086,7 +2388,7 @@ def generate_html_with_graphs(all_data, health_score, timestamp):
     <div class="container">
         <div class="header">
             <h1>><span class="blink">_</span> SYSTEM INTELLIGENCE ANALYTICS</h1>
-            <div class="creator">ENHANCED SYSTEM SCANNER v3.0 | SABARI425</div>
+            <div class="creator">ENHANCED SYSTEM SCANNER v4.0 | SABARI425</div>
             <p>> SCAN TIME: {current_time}</p>
             <p>> TARGET: {hostname} | PLATFORM: {platform_info}</p>
             <div class="health-score">
@@ -1190,16 +2492,6 @@ def generate_html_with_graphs(all_data, health_score, timestamp):
                     healthFill.style.width = score + '%';
                 }}, 500);
             }}
-            
-            // Animate bar graphs
-            const bars = document.querySelectorAll('.bar');
-            bars.forEach((bar, index) => {{
-                const height = bar.style.height || '0%';
-                bar.style.height = '0%';
-                setTimeout(() => {{
-                    bar.style.height = height;
-                }}, 300 * (index + 1));
-            }});
         }});
     </script>
 </body>
@@ -1208,153 +2500,8 @@ def generate_html_with_graphs(all_data, health_score, timestamp):
     
     return html
 
-def generate_statistics_html(stats_data, health_score):
-    """Generate HTML for statistics dashboard"""
-    if not stats_data:
-        return "<p style='color: #006600; text-align: center;'>No statistics available</p>"
-    
-    # Group by category
-    stats_by_category = {}
-    for stat in stats_data:
-        category = stat.get("Category", "Other")
-        if category not in stats_by_category:
-            stats_by_category[category] = []
-        stats_by_category[category].append(stat)
-    
-    html = ""
-    
-    # Health meter
-    html += f"""
-    <div class="health-meter">
-        <div class="health-fill" style="width: {health_score}%;"></div>
-    </div>
-    <div style="text-align: center; margin-bottom: 20px;">
-        <span style="color: #00ff00; font-weight: bold;">System Health: {health_score}/100</span>
-    </div>
-    """
-    
-    # Statistics grid
-    html += '<div class="stats-grid">'
-    
-    for category, stats in stats_by_category.items():
-        for stat in stats:
-            metric = stat.get("Metric", "")
-            value = stat.get("Value", "")
-            
-            # Determine color based on value
-            value_str = str(value)
-            is_good = False
-            is_warning = False
-            is_critical = False
-            
-            if "%" in value_str:
-                try:
-                    num_value = float(value_str.replace("%", ""))
-                    if "Usage" in metric or "CPU" in metric or "Memory" in metric:
-                        if num_value < 60:
-                            is_good = True
-                        elif num_value < 80:
-                            is_warning = True
-                        else:
-                            is_critical = True
-                except:
-                    pass
-            
-            value_color = "#00ff00"  # Default green
-            if is_warning:
-                value_color = "#ffff00"
-            elif is_critical:
-                value_color = "#ff0000"
-            
-            html += f"""
-            <div class="stat-card">
-                <h3>{metric}</h3>
-                <div class="stat-value" style="color: {value_color};">{value}</div>
-                <div class="stat-label">{category}</div>
-            </div>
-            """
-    
-    html += '</div>'
-    
-    return html
-
-def generate_graphs_html(graphs_data):
-    """Generate HTML for graphs"""
-    if not graphs_data:
-        return "<p style='color: #006600; text-align: center;'>No graphs available</p>"
-    
-    html = '<div class="stats-grid">'
-    
-    for graph in graphs_data:
-        graph_type = graph.get("Graph Type", "")
-        visualization = graph.get("Visualization", "")
-        
-        # Convert ASCII graph to HTML with green color
-        graph_html = visualization.replace("█", '<span style="color: #00ff00;">█</span>')
-        graph_html = graph_html.replace("◉", '<span style="color: #00ff00;">◉</span>')
-        graph_html = graph_html.replace("◐", '<span style="color: #00cc00;">◐</span>')
-        graph_html = graph_html.replace("◑", '<span style="color: #009900;">◑</span>')
-        graph_html = graph_html.replace("◒", '<span style="color: #006600;">◒</span>')
-        graph_html = graph_html.replace("○", '<span style="color: #00ff00;">○</span>')
-        graph_html = graph_html.replace("◎", '<span style="color: #00cc00;">◎</span>')
-        graph_html = graph_html.replace("●", '<span style="color: #009900;">●</span>')
-        graph_html = graph_html.replace("◌", '<span style="color: #006600;">◌</span>')
-        
-        html += f"""
-        <div class="graph-container">
-            <div class="graph-title">{graph_type}</div>
-            <div class="graph">{graph_html}</div>
-        </div>
-        """
-    
-    html += '</div>'
-    
-    # Add JavaScript bar graph visualization
-    html += """
-    <div class="graph-visual">
-        <div class="graph-title">SYSTEM METRICS VISUALIZATION</div>
-        <div class="bar-graph" id="barGraph">
-            <!-- Bar graph will be generated by JavaScript -->
-        </div>
-    </div>
-    
-    <script>
-        // Generate bar graph
-        function generateBarGraph() {
-            const data = [
-                {label: 'CPU', value: 75},
-                {label: 'Memory', value: 60},
-                {label: 'Disk', value: 45},
-                {label: 'Network', value: 85},
-                {label: 'Security', value: 90},
-                {label: 'Processes', value: 70}
-            ];
-            
-            const maxValue = Math.max(...data.map(d => d.value));
-            const barGraph = document.getElementById('barGraph');
-            barGraph.innerHTML = '';
-            
-            data.forEach(item => {
-                const height = (item.value / maxValue) * 100;
-                const bar = document.createElement('div');
-                bar.className = 'bar';
-                bar.style.height = height + '%';
-                bar.innerHTML = `
-                    <div class="bar-value">${item.value}%</div>
-                    <div class="bar-label">${item.label}</div>
-                `;
-                barGraph.appendChild(bar);
-            });
-        }
-        
-        document.addEventListener('DOMContentLoaded', generateBarGraph);
-    </script>
-    """
-    
-    return html
-
 # -------------------------------------------------------------------
-#  MAIN EXECUTION
+#  MAIN EXECUTION FUNCTIONS
 # -------------------------------------------------------------------
 def print_banner():
     """Display professional hacker-style System Scanner banner"""
@@ -1377,7 +2524,7 @@ def print_banner():
 {Colors.RESET}
 """
     print(banner)
-    print_colored("              ✦     ADVANCED ANALYTICS EDITION     ✦                ", Colors.BOLD + Colors.MAGENTA)
+    print_colored("              ✦     ULTIMATE ANALYTICS EDITION v4.0     ✦                ", Colors.BOLD + Colors.MAGENTA)
     print("\n\n")
 
 def simulate_scan_step(step_name, duration=1, steps=20):
@@ -1474,6 +2621,39 @@ def display_statistics_preview(all_data):
         if health_graph:
             print_colored(health_graph, Colors.GREEN)
 
+def collect_all_data():
+    """Collect all system data"""
+    all_data = {}
+    
+    collection_functions = {
+        "system_info": get_comprehensive_system_info,
+        "hardware_info": get_extended_hardware_info,
+        "process_info": get_detailed_process_info,
+        "network_info": get_network_analysis_extended,
+        "security_audit": get_security_audit,
+        "installed_software": get_installed_software_extended,
+        "system_services": get_system_services_extended,
+        "startup_programs": get_startup_programs,
+        "environment_vars": get_system_environment_extended,
+        "hardware_temps": get_hardware_temperatures,
+        "system_logs": get_system_logs_extended,
+        "performance_metrics": get_performance_metrics,
+        "user_accounts": get_user_accounts_extended,
+        "system_drivers": get_system_drivers_extended,
+        "wifi_networks": get_wifi_networks_extended
+    }
+    
+    for name, func in collection_functions.items():
+        try:
+            print_status(f"Collecting {name.replace('_', ' ')}...", "DATA", "Please wait")
+            all_data[name] = func()
+            print_status(f"Collected {len(all_data[name]) if isinstance(all_data[name], list) else 'data'} items", "SUCCESS", name)
+        except Exception as e:
+            print_status(f"Failed to collect {name}: {str(e)[:50]}", "ERROR")
+            all_data[name] = [{"Error": f"Collection failed: {str(e)[:50]}"}]
+    
+    return all_data
+
 def main():
     print_banner()
     
@@ -1503,33 +2683,7 @@ def main():
         print("\n")
         
         # Collect all data
-        all_data = {}
-        
-        collection_functions = {
-            "system_info": get_comprehensive_system_info,
-            "hardware_info": get_extended_hardware_info,
-            "process_info": get_detailed_process_info,
-            "network_info": get_network_analysis_extended,
-            "security_audit": get_security_audit,
-            "installed_software": get_installed_software_extended,
-            "system_services": get_system_services_extended,
-            "startup_programs": get_startup_programs,
-            "environment_vars": get_system_environment_extended,
-            "hardware_temps": get_hardware_temperatures,
-            "system_logs": get_system_logs_extended,
-            "performance_metrics": get_performance_metrics,
-            "user_accounts": get_user_accounts_extended,
-            "system_drivers": get_system_drivers_extended,
-            "wifi_networks": get_wifi_networks_extended
-        }
-        
-        for name, func in collection_functions.items():
-            try:
-                print_status(f"Collecting {name.replace('_', ' ')}...", "DATA", "Please wait")
-                all_data[name] = func()
-            except Exception as e:
-                print_status(f"Failed to collect {name}: {str(e)[:50]}", "ERROR")
-                all_data[name] = [{"Error": f"Collection failed: {str(e)[:50]}"}]
+        all_data = collect_all_data()
         
         # Display statistics preview
         display_statistics_preview(all_data)
