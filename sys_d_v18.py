@@ -13,8 +13,19 @@ import re
 import threading
 import queue
 from collections import OrderedDict, defaultdict
-import winreg  # Windows registry access
-import ctypes  # For Windows API calls
+
+# Try to import Windows-specific modules
+try:
+    import winreg  # Windows registry access
+    WINREG_AVAILABLE = True
+except:
+    WINREG_AVAILABLE = False
+
+try:
+    import ctypes  # For Windows API calls
+    CTYPES_AVAILABLE = True
+except:
+    CTYPES_AVAILABLE = False
 
 # -------------------------------------------------------------------
 #  AUTO-INSTALL REQUIRED PYTHON PACKAGES
@@ -22,53 +33,28 @@ import ctypes  # For Windows API calls
 def install_package(pkg):
     try:
         __import__(pkg)
+        return True
     except ImportError:
-        print(f"[*] Installing missing package: {pkg}")
         try:
+            print(f"[*] Installing missing package: {pkg}")
             subprocess.check_call([sys.executable, "-m", "pip", "install", pkg],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
         except:
             print(f"[!] Failed to install {pkg}")
+            return False
 
-# Enhanced package list - only essential ones
-required_packages = [
-    "psutil", "tabulate", "colorama"
-]
+# Essential packages
+required_packages = ["psutil", "tabulate"]
 
 for package in required_packages:
     install_package(package)
 
 import psutil
 from tabulate import tabulate
-import colorama
-from colorama import Fore, Back, Style
-
-# Initialize colorama
-colorama.init()
-
-# Try to import optional packages
-try:
-    import wmi
-    WMI_AVAILABLE = True
-except:
-    WMI_AVAILABLE = False
-
-try:
-    import GPUtil
-    GPU_AVAILABLE = True
-except:
-    GPU_AVAILABLE = False
-
-try:
-    import win32api
-    import win32con
-    import win32security
-    WIN32_AVAILABLE = True
-except:
-    WIN32_AVAILABLE = False
 
 # -------------------------------------------------------------------
-#  ENHANCED COLOR CLASS WITH GRADIENTS AND EFFECTS
+#  ENHANCED COLOR CLASS WITH GRADIENTS AND EFFECTS - FIXED VERSION
 # -------------------------------------------------------------------
 class Colors:
     # Basic ANSI colors
@@ -142,8 +128,8 @@ class Colors:
         return result + Colors.RESET
     
     @staticmethod
-    def rainbow(text):
-        """Create rainbow text effect - FIXED METHOD"""
+    def rainbow_text(text):
+        """Create rainbow text effect - FIXED: Renamed from rainbow() to rainbow_text()"""
         colors = [
             (255, 0, 0),    # Red
             (255, 127, 0),  # Orange
@@ -169,7 +155,7 @@ def print_colored(text, color=Colors.WHITE, style="", end="\n"):
         text = Colors.gradient(text, color[0], color[1])
         print(text, end=end)
     elif style == "rainbow":
-        text = Colors.rainbow(text)
+        text = Colors.rainbow_text(text)
         print(text, end=end)
     else:
         print(f"{color}{text}{Colors.RESET}", end=end)
@@ -295,7 +281,7 @@ def get_comprehensive_system_info():
         info["Python Build"] = "Unknown"
     
     # Windows specific
-    if platform.system() == "Windows":
+    if platform.system() == "Windows" and WINREG_AVAILABLE:
         try:
             # Get Windows edition
             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
@@ -309,26 +295,6 @@ def get_comprehensive_system_info():
                 info["Edition ID"] = winreg.QueryValueEx(key, "EditionID")[0]
             except:
                 info["Edition ID"] = "Unknown"
-            
-            try:
-                info["Build Branch"] = winreg.QueryValueEx(key, "BuildBranch")[0]
-            except:
-                info["Build Branch"] = "Unknown"
-                
-            try:
-                info["Build Lab"] = winreg.QueryValueEx(key, "BuildLabEx")[0]
-            except:
-                info["Build Lab"] = "Unknown"
-                
-            try:
-                info["Registered Owner"] = winreg.QueryValueEx(key, "RegisteredOwner")[0]
-            except:
-                info["Registered Owner"] = "Unknown"
-                
-            try:
-                info["Registered Organization"] = winreg.QueryValueEx(key, "RegisteredOrganization")[0]
-            except:
-                info["Registered Organization"] = "Unknown"
                 
             winreg.CloseKey(key)
         except Exception as e:
@@ -339,7 +305,12 @@ def get_comprehensive_system_info():
         boot_time = psutil.boot_time()
         uptime = datetime.now() - datetime.fromtimestamp(boot_time)
         info["Boot Time"] = datetime.fromtimestamp(boot_time).strftime('%Y-%m-%d %H:%M:%S')
-        info["Uptime"] = str(uptime).split('.')[0]
+        
+        # Format uptime nicely
+        days = uptime.days
+        hours, remainder = divmod(uptime.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        info["Uptime"] = f"{days}d {hours}h {minutes}m {seconds}s"
     except:
         info["Boot Time"] = "Unknown"
         info["Uptime"] = "Unknown"
@@ -421,22 +392,6 @@ def get_extended_hardware_info():
                 continue
     except:
         pass
-    
-    # GPU Information (if available)
-    if GPU_AVAILABLE:
-        try:
-            gpus = GPUtil.getGPUs()
-            for i, gpu in enumerate(gpus):
-                hardware.append({
-                    "Category": "GPU",
-                    "Name": gpu.name,
-                    "Load": f"{gpu.load*100:.1f}%" if gpu.load else "N/A",
-                    "Memory Used": f"{gpu.memoryUsed} MB" if gpu.memoryUsed else "N/A",
-                    "Memory Total": f"{gpu.memoryTotal} MB" if gpu.memoryTotal else "N/A",
-                    "Temperature": f"{gpu.temperature} °C" if gpu.temperature else "N/A"
-                })
-        except:
-            pass
     
     # Battery Information
     try:
@@ -606,6 +561,10 @@ def get_network_analysis_extended():
                     "Dropped Out": f"{io.dropout:,}"
                 })
             
+            # Join lists to strings
+            iface_info["IPv4"] = ", ".join(iface_info["IPv4"]) if iface_info["IPv4"] else "N/A"
+            iface_info["IPv6"] = ", ".join(iface_info["IPv6"]) if iface_info["IPv6"] else "N/A"
+            
             network_info.append(iface_info)
     except Exception as e:
         network_info.append({
@@ -651,112 +610,64 @@ def get_security_audit():
     security_info = []
     
     if platform.system() == "Windows":
+        # Check for admin privileges
         try:
-            # Check Windows Defender
-            try:
-                defender_status = subprocess.run(
-                    ["powershell", "-Command", "Get-MpComputerStatus"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if defender_status.returncode == 0 and "True" in defender_status.stdout:
-                    security_info.append({
-                        "Security Feature": "Windows Defender",
-                        "Status": "Enabled",
-                        "Risk": "Low"
-                    })
-                else:
-                    security_info.append({
-                        "Security Feature": "Windows Defender",
-                        "Status": "Disabled",
-                        "Risk": "High"
-                    })
-            except:
-                security_info.append({
-                    "Security Feature": "Windows Defender",
-                    "Status": "Unknown",
-                    "Risk": "Medium"
-                })
-            
-            # Check Firewall
-            try:
-                firewall_status = subprocess.run(
-                    ["netsh", "advfirewall", "show", "allprofiles"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if firewall_status.returncode == 0 and "ON" in firewall_status.stdout:
-                    security_info.append({
-                        "Security Feature": "Firewall",
-                        "Status": "Enabled",
-                        "Risk": "Low"
-                    })
-                else:
-                    security_info.append({
-                        "Security Feature": "Firewall",
-                        "Status": "Disabled",
-                        "Risk": "High"
-                    })
-            except:
-                security_info.append({
-                    "Security Feature": "Firewall",
-                    "Status": "Unknown",
-                    "Risk": "Medium"
-                })
-            
-            # Check UAC
-            try:
-                uac_status = subprocess.run(
-                    ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "/v", "EnableLUA"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if uac_status.returncode == 0 and "0x1" in uac_status.stdout:
-                    security_info.append({
-                        "Security Feature": "UAC",
-                        "Status": "Enabled",
-                        "Risk": "Low"
-                    })
-                else:
-                    security_info.append({
-                        "Security Feature": "UAC",
-                        "Status": "Disabled",
-                        "Risk": "High"
-                    })
-            except:
-                security_info.append({
-                    "Security Feature": "UAC",
-                    "Status": "Unknown",
-                    "Risk": "Medium"
-                })
-                
-        except Exception as e:
+            if CTYPES_AVAILABLE:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+            else:
+                is_admin = False
             security_info.append({
-                "Security Feature": "Security Audit",
-                "Status": f"Error: {str(e)[:30]}",
+                "Security Feature": "Admin Privileges",
+                "Status": "Yes" if is_admin else "No",
+                "Risk": "High" if is_admin else "Low"
+            })
+        except:
+            security_info.append({
+                "Security Feature": "Admin Privileges",
+                "Status": "Unknown",
                 "Risk": "Unknown"
             })
+        
+        # Try to check firewall
+        try:
+            firewall_status = subprocess.run(
+                ["netsh", "advfirewall", "show", "allprofiles"],
+                capture_output=True, text=True, timeout=5
+            )
+            if firewall_status.returncode == 0 and "ON" in firewall_status.stdout:
+                security_info.append({
+                    "Security Feature": "Firewall",
+                    "Status": "Enabled",
+                    "Risk": "Low"
+                })
+            else:
+                security_info.append({
+                    "Security Feature": "Firewall",
+                    "Status": "Disabled",
+                    "Risk": "High"
+                })
+        except:
+            security_info.append({
+                "Security Feature": "Firewall",
+                "Status": "Unknown",
+                "Risk": "Medium"
+            })
     else:
-        security_info.append({
-            "Security Feature": "Platform",
-            "Status": f"Non-Windows: {platform.system()}",
-            "Risk": "N/A"
-        })
-    
-    # Check for admin privileges
-    try:
-        if platform.system() == "Windows":
-            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-        else:
+        # For non-Windows systems
+        try:
             is_admin = os.getuid() == 0
+            security_info.append({
+                "Security Feature": "Root Privileges",
+                "Status": "Yes" if is_admin else "No",
+                "Risk": "High" if is_admin else "Low"
+            })
+        except:
+            pass
         
         security_info.append({
-            "Security Feature": "Admin Privileges",
-            "Status": "Yes" if is_admin else "No",
-            "Risk": "High" if is_admin else "Low"
-        })
-    except:
-        security_info.append({
-            "Security Feature": "Admin Privileges",
-            "Status": "Unknown",
-            "Risk": "Unknown"
+            "Security Feature": "Platform",
+            "Status": f"{platform.system()}",
+            "Risk": "N/A"
         })
     
     return security_info
@@ -765,7 +676,7 @@ def get_installed_software_extended():
     """Get detailed installed software information"""
     software_list = []
     
-    if platform.system() == "Windows":
+    if platform.system() == "Windows" and WINREG_AVAILABLE:
         try:
             # Check both 32-bit and 64-bit registry locations
             registry_paths = [
@@ -907,7 +818,6 @@ def get_startup_programs():
         startup_paths = [
             os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup"),
             os.path.join(os.environ.get("PROGRAMDATA", ""), r"Microsoft\Windows\Start Menu\Programs\StartUp"),
-            r"C:\Users\All Users\Microsoft\Windows\Start Menu\Programs\Startup"
         ]
         
         for path in startup_paths:
@@ -1019,7 +929,7 @@ def get_system_logs_extended():
         
         # Python process info
         logs.append({
-            "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "Time": datetime.now().strftime('%Y-%m-d %H:%M:%S'),
             "Event": "Scanner Process",
             "Details": f"PID: {os.getpid()}, Python: {sys.version.split()[0]}"
         })
@@ -1120,80 +1030,58 @@ def get_user_accounts_extended():
     
     if platform.system() == "Windows":
         try:
-            # Get local users using net command
-            output = subprocess.run(
-                ["net", "user"],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='ignore',
-                timeout=10
-            )
+            # Get current user
+            current_user = getpass.getuser()
+            users.append({
+                "Username": current_user,
+                "Full Name": "Current User",
+                "Active": "Yes",
+                "Last Logon": "Now"
+            })
             
-            if output.returncode == 0:
-                lines = output.stdout.split('\n')
-                user_list = []
-                in_user_section = False
+            # Try to get other users via system command
+            try:
+                output = subprocess.run(
+                    ["net", "user"],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    timeout=5
+                )
                 
-                for line in lines:
-                    line = line.strip()
-                    if "User accounts for" in line:
-                        in_user_section = True
-                        continue
-                    if "The command completed" in line:
-                        break
+                if output.returncode == 0:
+                    lines = output.stdout.split('\n')
+                    user_list = []
+                    in_user_section = False
                     
-                    if in_user_section and line:
-                        # Extract usernames
-                        words = line.split()
-                        for word in words:
-                            if word and word not in ["User", "accounts", "for", "\\", "---------"]:
-                                user_list.append(word)
-                
-                # Get details for each user (limited to 5)
-                for username in user_list[:5]:
-                    try:
-                        user_output = subprocess.run(
-                            ["net", "user", username],
-                            capture_output=True,
-                            text=True,
-                            encoding='utf-8',
-                            errors='ignore',
-                            timeout=10
-                        )
+                    for line in lines:
+                        line = line.strip()
+                        if "User accounts for" in line:
+                            in_user_section = True
+                            continue
+                        if "The command completed" in line:
+                            break
                         
-                        user_details = {}
-                        for line in user_output.stdout.split('\n'):
-                            line_lower = line.lower()
-                            if 'full name' in line_lower:
-                                user_details['Full Name'] = line.split('Full Name')[1].strip()
-                            elif 'account active' in line_lower:
-                                user_details['Active'] = 'Yes' if 'yes' in line_lower else 'No'
-                            elif 'last logon' in line_lower:
-                                user_details['Last Logon'] = line.split('Last logon')[1].strip()
-                        
+                        if in_user_section and line:
+                            # Extract usernames
+                            words = line.split()
+                            for word in words:
+                                if word and word not in ["User", "accounts", "for", "\\", "---------", ""]:
+                                    if word != current_user:  # Don't add current user again
+                                        user_list.append(word)
+                    
+                    # Add other users
+                    for username in user_list[:4]:  # Limit to 4 other users
                         users.append({
                             "Username": username[:20],
-                            "Full Name": user_details.get('Full Name', 'N/A')[:30],
-                            "Active": user_details.get('Active', 'N/A'),
-                            "Last Logon": user_details.get('Last Logon', 'N/A')[:30]
-                        })
-                        
-                    except:
-                        users.append({
-                            "Username": username[:20],
-                            "Full Name": "Error retrieving",
-                            "Active": "N/A",
+                            "Full Name": "N/A",
+                            "Active": "Unknown",
                             "Last Logon": "N/A"
                         })
-            else:
-                users.append({
-                    "Username": "net command failed",
-                    "Full Name": f"Return code: {output.returncode}",
-                    "Active": "N/A",
-                    "Last Logon": "N/A"
-                })
-        
+            except:
+                pass
+                
         except Exception as e:
             users.append({
                 "Username": f"Error: {str(e)[:30]}",
@@ -1207,9 +1095,9 @@ def get_user_accounts_extended():
             current_user = getpass.getuser()
             users.append({
                 "Username": current_user,
-                "Full Name": "N/A",
+                "Full Name": "Current User",
                 "Active": "Yes",
-                "Last Logon": "Current session"
+                "Last Logon": "Now"
             })
         except:
             users.append({
@@ -1228,45 +1116,26 @@ def get_system_drivers_extended():
     if platform.system() == "Windows":
         try:
             output = subprocess.run(
-                ["driverquery", "/v", "/fo", "csv"],
+                ["driverquery"],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
                 errors='ignore',
-                timeout=15
+                timeout=10
             )
             
             if output.returncode == 0 and output.stdout:
                 lines = output.stdout.strip().split('\n')
-                if len(lines) > 1:
-                    # Parse CSV
-                    for line in lines[1:]:  # Skip header
+                if len(lines) > 3:  # Skip header lines
+                    for line in lines[3:]:  # Skip header
                         if line.strip():
-                            # Simple CSV parsing
-                            parts = []
-                            in_quotes = False
-                            current_part = ""
-                            
-                            for char in line:
-                                if char == '"':
-                                    in_quotes = not in_quotes
-                                elif char == ',' and not in_quotes:
-                                    parts.append(current_part.strip('"'))
-                                    current_part = ""
-                                else:
-                                    current_part += char
-                            
-                            if current_part:
-                                parts.append(current_part.strip('"'))
-                            
-                            if len(parts) >= 6:
+                            parts = line.split()
+                            if len(parts) >= 3:
                                 drivers.append({
                                     "Module Name": parts[0][:30],
-                                    "Display Name": parts[1][:40],
-                                    "Driver Type": parts[2][:20],
-                                    "Start Mode": parts[3][:15],
-                                    "State": parts[4][:15],
-                                    "Status": parts[5][:20] if len(parts) > 5 else "N/A"
+                                    "Display Name": " ".join(parts[1:-2])[:40] if len(parts) > 3 else parts[1][:40],
+                                    "Driver Type": parts[-2][:20] if len(parts) >= 3 else "N/A",
+                                    "Start Mode": parts[-1][:15] if len(parts) >= 3 else "N/A"
                                 })
             
             # Limit to 15 drivers
@@ -1295,7 +1164,7 @@ def get_wifi_networks_extended():
     
     if platform.system() == "Windows":
         try:
-            # Get WiFi profiles
+            # Get WiFi profiles using netsh
             profiles_output = subprocess.run(
                 ["netsh", "wlan", "show", "profiles"],
                 capture_output=True,
@@ -1313,11 +1182,11 @@ def get_wifi_networks_extended():
                         if profile_name:
                             profiles.append(profile_name)
                 
-                # Get details for each profile (limited to 5)
-                for profile in profiles[:5]:
+                # Get details for each profile (limited to 3)
+                for profile in profiles[:3]:
                     try:
                         profile_output = subprocess.run(
-                            ["netsh", "wlan", "show", "profile", f"name={profile}", "key=clear"],
+                            ["netsh", "wlan", "show", "profile", f"name={profile}"],
                             capture_output=True,
                             text=True,
                             encoding='utf-8',
@@ -1329,9 +1198,7 @@ def get_wifi_networks_extended():
                         if profile_output.returncode == 0:
                             for line in profile_output.stdout.split('\n'):
                                 line = line.strip()
-                                if "Key Content" in line and ":" in line:
-                                    details['Password'] = line.split(":")[1].strip()
-                                elif "Authentication" in line and ":" in line:
+                                if "Authentication" in line and ":" in line:
                                     details['Auth'] = line.split(":")[1].strip()
                                 elif "Cipher" in line and ":" in line:
                                     details['Cipher'] = line.split(":")[1].strip()
@@ -1340,7 +1207,7 @@ def get_wifi_networks_extended():
                             "SSID": profile[:30],
                             "Authentication": details.get('Auth', 'Unknown')[:20],
                             "Cipher": details.get('Cipher', 'Unknown')[:20],
-                            "Password": details.get('Password', 'Not stored')[:30]
+                            "Password": "Not shown (encrypted)"
                         })
                         
                     except:
@@ -1352,8 +1219,8 @@ def get_wifi_networks_extended():
                         })
             else:
                 wifi_networks.append({
-                    "SSID": "netsh command failed",
-                    "Authentication": f"Code: {profiles_output.returncode}",
+                    "SSID": "WiFi info",
+                    "Authentication": "netsh command unavailable",
                     "Cipher": "N/A",
                     "Password": "N/A"
                 })
@@ -1448,26 +1315,32 @@ def calculate_health_score(data):
             if item.get("Category") == "MEMORY" and "Usage" in item:
                 usage_str = item["Usage"]
                 if "%" in usage_str:
-                    usage = float(usage_str.replace("%", "").strip())
-                    if usage > 90:
-                        score -= 20
-                    elif usage > 80:
-                        score -= 10
-                    elif usage > 70:
-                        score -= 5
+                    try:
+                        usage = float(usage_str.replace("%", "").strip())
+                        if usage > 90:
+                            score -= 20
+                        elif usage > 80:
+                            score -= 10
+                        elif usage > 70:
+                            score -= 5
+                    except:
+                        pass
         
         # Check disk usage
         for item in data.get("hardware_info", []):
             if item.get("Category") == "DISK" and "Usage" in item:
                 usage_str = item["Usage"]
                 if "%" in usage_str:
-                    usage = float(usage_str.replace("%", "").strip())
-                    if usage > 95:
-                        score -= 15
-                    elif usage > 90:
-                        score -= 10
-                    elif usage > 85:
-                        score -= 5
+                    try:
+                        usage = float(usage_str.replace("%", "").strip())
+                        if usage > 95:
+                            score -= 15
+                        elif usage > 90:
+                            score -= 10
+                        elif usage > 85:
+                            score -= 5
+                    except:
+                        pass
         
         # Check security
         for item in data.get("security_audit", []):
@@ -1490,6 +1363,7 @@ def generate_html_content(all_data, health_score, timestamp):
     health_color = get_health_color(health_score)
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     hostname = socket.gethostname() if hasattr(socket, 'gethostname') else "Unknown"
+    platform_info = platform.platform() if hasattr(platform, 'platform') else "Unknown"
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1498,7 +1372,6 @@ def generate_html_content(all_data, health_score, timestamp):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Intelligence Report</title>
     <style>
-        /* Your existing CSS styles */
         * {{
             margin: 0;
             padding: 0;
@@ -1726,7 +1599,6 @@ def generate_html_content(all_data, health_score, timestamp):
             }}
         }}
 
-        /* Custom scrollbar */
         ::-webkit-scrollbar {{
             width: 8px;
             height: 8px;
@@ -1754,7 +1626,7 @@ def generate_html_content(all_data, health_score, timestamp):
             <h1>><span class="blink">_</span> SYSTEM INTELLIGENCE REPORT</h1>
             <div class="creator">ENHANCED SYSTEM SCANNER v2.0 | SABARI425</div>
             <p>> SCAN TIME: {current_time}</p>
-            <p>> TARGET: {hostname} | PLATFORM: {platform.platform()}</p>
+            <p>> TARGET: {hostname} | PLATFORM: {platform_info}</p>
             <div class="health-score">
                 SYSTEM HEALTH: {health_score}/100
             </div>
@@ -1835,16 +1707,6 @@ def generate_html_content(all_data, health_score, timestamp):
                 // Add sorted rows
                 rows.forEach(row => tbody.appendChild(row));
             }}
-            
-            // Add scan line effect
-            const scanLine = document.querySelector('.scan-line');
-            setInterval(() => {{
-                scanLine.style.top = '0%';
-                setTimeout(() => {{
-                    scanLine.style.transition = 'top 3s linear';
-                    scanLine.style.top = '100%';
-                }}, 100);
-            }}, 4000);
         }});
     </script>
 </body>
@@ -1873,13 +1735,15 @@ def generate_section_html(section_name, data):
         if isinstance(data[0], list) and len(data[0]) == 2:
             # Key-value format (for system_info)
             html += '<table>'
-            for key, value in data:
-                html += f'''
-                <tr>
-                    <td style="width: 30%;"><span style="color: #00ff00;">></span> {key}</td>
-                    <td style="width: 70%;">{value}</td>
-                </tr>
-                '''
+            for item in data:
+                if len(item) == 2:
+                    key, value = item
+                    html += f'''
+                    <tr>
+                        <td style="width: 30%;"><span style="color: #00ff00;">></span> {key}</td>
+                        <td style="width: 70%;">{value}</td>
+                    </tr>
+                    '''
             html += '</table>'
         elif isinstance(data[0], dict):
             # Table format
@@ -1906,9 +1770,6 @@ def generate_section_html(section_name, data):
                                 cell_class = "status-critical"
                             elif 'warning' in cell_lower or 'medium' in cell_lower:
                                 cell_class = "status-warning"
-                        
-                        elif 'password' in header_lower and cell_lower != 'not stored' and 'error' not in cell_lower:
-                            cell_class = "status-active"
                         
                         if cell_class:
                             html += f'<td class="{cell_class}">{cell}</td>'
@@ -1980,7 +1841,7 @@ def simulate_scan_step(step_name, duration=1, steps=20):
     print("\t\t", end='')
     print_status(f"Completed: {step_name}", "SUCCESS")
 
-if __name__ == "__main__":
+def main():
     print_banner()
     
     try:
@@ -2003,7 +1864,8 @@ if __name__ == "__main__":
         
         print("\n")
         print_colored("="*80, Colors.BRIGHT_GREEN)
-        print_colored("GENERATING COMPREHENSIVE SYSTEM INTELLIGENCE REPORT", Colors.RAINBOW)
+        # FIXED: Using rainbow_text() method instead of RAINBOW attribute
+        print(Colors.rainbow_text("GENERATING COMPREHENSIVE SYSTEM INTELLIGENCE REPORT"))
         print_colored("="*80, Colors.BRIGHT_GREEN)
         print("\n")
         
@@ -2075,3 +1937,6 @@ if __name__ == "__main__":
             input("\nPress Enter to exit...")
         except:
             pass
+
+if __name__ == "__main__":
+    main()
